@@ -5,6 +5,7 @@ import hashlib
 import csv
 from typing import Optional, List, Dict
 from zoneinfo import ZoneInfo
+import logging
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, VectorParams, Distance
 from .utils import log_call
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..mongodb_lib.client import MongoDBClient as mdb
 
 KST = ZoneInfo("Asia/Seoul")
+logger = logging.getLogger(__name__)
 
 @log_call
 def upload_to_qdrant(chunks: list[str], embeddings: list[list[float]], metadata_list: list[dict], collection_name: str, file_hash: str = None):
@@ -47,7 +49,7 @@ def upload_to_qdrant(chunks: list[str], embeddings: list[list[float]], metadata_
     batch_size = 50
     for i in range(0, len(points), batch_size):
         batch = points[i:i + batch_size]
-        print(f"Uploading batch {i//batch_size + 1}/{(len(points)-1)//batch_size + 1}: {len(batch)} points")
+        logger.info(f"Uploading batch {i//batch_size + 1}/{(len(points)-1)//batch_size + 1}: {len(batch)} points")
         client.upsert(collection_name=collection_name, points=batch)
 
 @log_call
@@ -117,9 +119,9 @@ def delete_points_by_file_hash(collection_name: str, file_hash: str):
     ids = [p.id for p in points]
     if ids:
         client.delete(collection_name=collection_name, points_selector={"points": ids})
-        print(f"🗑️ 삭제 완료: {len(ids)}개 포인트 (file_hash: {file_hash})")
+        logger.info(f"🗑️ 삭제 완료: {len(ids)}개 포인트 (file_hash: {file_hash})")
     else:
-        print(f"ℹ️ 삭제할 포인트 없음 (file_hash: {file_hash})")
+        logger.info(f"ℹ️ 삭제할 포인트 없음 (file_hash: {file_hash})")
 
 @log_call
 def clone_collection(source_collection: str, target_collection: str, batch_size: int = 500):
@@ -164,7 +166,7 @@ def clone_collection(source_collection: str, target_collection: str, batch_size:
             break
         offset = next_page
 
-    print(f"✅ '{source_collection}' → '{target_collection}' 복제 완료")
+    logger.info(f"✅ '{source_collection}' → '{target_collection}' 복제 완료")
 
 
 # ==== CSV Ingestion: Course Metadata ====
@@ -255,9 +257,9 @@ def ingest_courses_csv(file_path: str, collection_name: str, org_code: Optional[
             if hasattr(mdb, 'add_vectorstore'):
                 mdb.add_vectorstore(org_code, collection_name, files=[file_info])
             else:
-                print(f"MongoDB vectorstore registration skipped: add_vectorstore method not available")
+                logger.warning(f"MongoDB vectorstore registration skipped: add_vectorstore method not available")
         except Exception as e:
-            print(f"MongoDB vectorstore registration failed: {e}")
+            logger.error(f"MongoDB vectorstore registration failed: {e}", exc_info=True)
 
     return file_hash
 

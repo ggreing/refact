@@ -1,14 +1,22 @@
+"""
+스레드 관리 클래스 (리팩토링됨)
+"""
 from bson.objectid import ObjectId
+import logging
+
 from .base_client import BaseMongoClient
 from .utils import log_call
 from .models import ThreadData
+
+logger = logging.getLogger(__name__)
 
 
 class ThreadManager(BaseMongoClient):
     """스레드 관리 클래스"""
     
-    def __init__(self, config=None):
-        super().__init__(config)
+    def __init__(self, mongo_uri: str):
+        # [Refactor] mongo_uri를 직접 받아서 부모 클래스에 전달
+        super().__init__(mongo_uri)
     
     @log_call
     def add_user_thread(self, org_code: str, user_id: str, function_name: str):
@@ -56,7 +64,7 @@ class ThreadManager(BaseMongoClient):
             function_name=function_name
         )
         thread_collection.insert_one(thread_obj.to_dict())
-        print(f"Added thread {thread_id} for user {user_id}, function {function_name}")
+        logger.info(f"Added thread {thread_id} for user {user_id}, function {function_name}")
         return thread_id
     
     @log_call
@@ -80,7 +88,7 @@ class ThreadManager(BaseMongoClient):
         thread_collection = self.get_collection(org_code, "threads")
         thread_collection.delete_one({"_id": thread_id})
         
-        print(f"Removed thread {thread_id} for user {user_id}, function {function_name}")
+        logger.info(f"Removed thread {thread_id} for user {user_id}, function {function_name}")
     
     @log_call
     def get_user_threads(self, org_code: str, user_id: str, function_name: str):

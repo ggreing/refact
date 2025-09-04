@@ -1,6 +1,7 @@
 
 from dotenv import load_dotenv
 import asyncio
+import logging
 from textwrap import dedent
 
 
@@ -36,7 +37,7 @@ from worker.ai.langfuse_handler.langfuse_handler import (
     get_custom_langfuse_handler
 )
 
-
+logger = logging.getLogger(__name__)
 
 
 Agent.instrument_all()
@@ -100,7 +101,7 @@ async def requirement_analysis(state: Chat_State, config: RunnableConfig):
     try:
         llm = csms_ai_model(model)
     except:
-        print("일치하는 모델이 없습니다.")
+        logger.error(f"Model '{model}' not found, falling back to gpt-4.1-nano.")
         llm = csms_ai_model("gpt-4.1-nano")
 
     system_prompt = dedent("""
@@ -148,7 +149,7 @@ async def requirement_analysis(state: Chat_State, config: RunnableConfig):
                         })
             return final_result
         except Exception as e:
-            print(f"[ERROR] Requirement analysis failed: {e}")
+            logger.error(f"[ERROR] Requirement analysis failed: {e}", exc_info=True)
             if stream_sender:
                 structured_chunk = json.dumps({
                     "type": "error",
@@ -241,7 +242,7 @@ async def retriever(state: Chat_State, config: RunnableConfig):
         return {"retrieved_courses": retrieved_courses}
         
     except Exception as e:
-        print(f"[ERROR] Retriever failed: {e}")
+        logger.error(f"[ERROR] Retriever failed: {e}", exc_info=True)
         if stream_sender:
             structured_chunk = json.dumps({
                 "type": "error",
@@ -293,7 +294,7 @@ async def course_recommand(state: Chat_State, config: RunnableConfig):
     try:
         llm = csms_ai_model(model)
     except:
-        print("일치하는 모델이 없습니다.")
+        logger.error(f"Model '{model}' not found, falling back to gpt-4.1-nano.")
         llm = csms_ai_model("gpt-4.1-nano")
 
     system_prompt = dedent(
@@ -365,7 +366,7 @@ async def course_recommand(state: Chat_State, config: RunnableConfig):
 
             return final_result
         except Exception as e:
-            print(f"[ERROR] Course Recommendation node agent.run_stream failed: {e}")
+            logger.error(f"[ERROR] Course Recommendation node agent.run_stream failed: {e}", exc_info=True)
             if stream_sender:
                 structured_chunk = json.dumps({
                     "type": "error",
@@ -406,7 +407,7 @@ async def chat(state: Chat_State, config: RunnableConfig):
     try:
         llm = csms_ai_model(model)
     except:
-        print("일치하는 모델이 없습니다.")
+        logger.error(f"Model '{model}' not found, falling back to gpt-4.1-nano.")
         llm = csms_ai_model("gpt-4.1-nano")
     
     
@@ -474,7 +475,7 @@ async def chat(state: Chat_State, config: RunnableConfig):
                 result = await stream_result.get_output()
                 return result
         except Exception as e:
-            print(f"[ERROR] Chat node agent.run_stream failed: {e}")
+            logger.error(f"[ERROR] Chat node agent.run_stream failed: {e}", exc_info=True)
             if stream_sender:
                 structured_chunk = json.dumps({
                     "type": "error",
@@ -507,7 +508,7 @@ async def supervisor(state: Chat_State, config: RunnableConfig):
     try:
         llm = csms_ai_model(model)
     except:
-        print("일치하는 모델이 없습니다.")
+        logger.error(f"Model '{model}' not found, falling back to gpt-4.1-nano.")
         llm = csms_ai_model("gpt-4.1-nano")
     
     system_prompt = dedent("""
@@ -558,7 +559,7 @@ async def supervisor(state: Chat_State, config: RunnableConfig):
                         })
             return final_result
         except Exception as e:
-            print(f"[ERROR] Supervisor node agent.run_stream failed: {e}")
+            logger.error(f"[ERROR] Supervisor node agent.run_stream failed: {e}", exc_info=True)
             if stream_sender:
                 structured_chunk = json.dumps({
                     "type": "error",
@@ -571,15 +572,15 @@ async def supervisor(state: Chat_State, config: RunnableConfig):
             return None
 
     result = await supervisor_with_streaming()
-    print(f"[DEBUG] Supervisor result: {result}")
-    print(f"[DEBUG] Supervisor result type: {type(result)}")
+    logger.debug(f"Supervisor result: {result}")
+    logger.debug(f"Supervisor result type: {type(result)}")
     
     if result:
-        print(f"[DEBUG] next_step: {result.next_step}")
-        print(f"[DEBUG] reasoning: {result.reasoning}")
+        logger.debug(f"next_step: {result.next_step}")
+        logger.debug(f"reasoning: {result.reasoning}")
         return {"next_step": result.next_step, "supervisor_reasoning": result.reasoning}
     else:
-        print("[DEBUG] Supervisor result is None!")
+        logger.warning("[DEBUG] Supervisor result is None! Falling back to chat.")
         return {"next_step": "chat", "supervisor_reasoning": "fallback"}
 
 
@@ -598,7 +599,7 @@ async def rubicon(state: Chat_State, config: RunnableConfig):
     try:
         llm = csms_ai_model(model)
     except:
-        print("일치하는 모델이 없습니다.")
+        logger.error(f"Model '{model}' not found, falling back to gpt-4.1-nano.")
         llm = csms_ai_model("gpt-4.1-nano")
     
     system_prompt = dedent("""
@@ -637,7 +638,7 @@ async def rubicon(state: Chat_State, config: RunnableConfig):
                 result = await stream_result.get_output()
                 return result
         except Exception as e:
-            print(f"[ERROR] Rubicon node agent.run_stream failed: {e}")
+            logger.error(f"[ERROR] Rubicon node agent.run_stream failed: {e}", exc_info=True)
             if stream_sender:
                 structured_chunk = json.dumps({
                     "type": "error",
@@ -657,17 +658,17 @@ async def rubicon(state: Chat_State, config: RunnableConfig):
 def route_supervisor(state: Chat_State):
     """슈퍼바이저의 결정에 따라 다음 노드를 결정하는 라우팅 함수"""
     next_step = state.get("next_step")
-    print(f"[DEBUG] Routing - next_step: {next_step}")
-    print(f"[DEBUG] Routing - full state: {state}")
+    logger.debug(f"Routing - next_step: {next_step}")
+    logger.debug(f"Routing - full state: {state}")
     
     if next_step == "requirement_analysis":
-        print("[DEBUG] Routing to requirement_analysis")
+        logger.debug("Routing to requirement_analysis")
         return "requirement_analysis"
     elif next_step == "rubicon":
-        print("[DEBUG] Routing to rubicon")
+        logger.debug("Routing to rubicon")
         return "rubicon"
     else:
-        print("[DEBUG] Routing to chat (default)")
+        logger.debug("Routing to chat (default)")
         return "chat"
 
 
@@ -715,9 +716,9 @@ try:
     graph_bytes = ai_graph.get_graph().draw_mermaid_png()
     with open('/app/ai_graph.png', 'wb') as f:
         f.write(graph_bytes)
-    print("메인 그래프 이미지 저장 완료: ai_graph.png")
+    logger.info("메인 그래프 이미지 저장 완료: ai_graph.png")
 except Exception as e:
-    print(f"[WARN] 그래프 이미지 저장 실패: {e}")
+    logger.warning(f"그래프 이미지 저장 실패: {e}", exc_info=True)
 
 ######### 그래프 실행 ######### 
 async def graphastream(state, langfuse_handler=None):
@@ -728,7 +729,7 @@ async def graphastream(state, langfuse_handler=None):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
     
-    print(f"[user]: {state['query']}")
+    logger.info(f"[user]: {state['query']}")
     stream_sender = state.get("stream_sender")
     try:
         events = ai_graph.astream(
@@ -742,7 +743,7 @@ async def graphastream(state, langfuse_handler=None):
         
         return "done"
     except Exception as e:
-        print(f"[FATAL] LangGraph execution failed: {e}")
+        logger.critical(f"[FATAL] LangGraph execution failed: {e}", exc_info=True)
         if stream_sender:
             structured_chunk = json.dumps({
                 "type": "error",
@@ -783,4 +784,4 @@ if __name__ == '__main__':
     }
 
     result = asyncio.run(graphastream(state, langfuse_handler))
-    print(result)
+    logger.info(f"Graph execution result: {result}")

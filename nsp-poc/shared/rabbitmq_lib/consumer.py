@@ -1,23 +1,26 @@
 """
-RabbitMQ 메시지 소비자들
+RabbitMQ 메시지 소비자들 (리팩토링됨)
 """
 import json
 import asyncio
+import logging
 from typing import Callable, Dict, Any, Optional, List, AsyncIterator
 from datetime import datetime
 
 import aio_pika
 from aio_pika.abc import AbstractRobustChannel, AbstractQueue, AbstractIncomingMessage
 
-from .config import RabbitMQConfig, get_rabbitmq_config
+from api.config.settings import settings
 from .connection import get_channel
+
+logger = logging.getLogger(__name__)
 
 
 class BaseConsumer:
     """기본 소비자 클래스"""
     
-    def __init__(self, config: RabbitMQConfig = None):
-        self.config = config or get_rabbitmq_config()
+    def __init__(self):
+        self.config = settings
         self._channel = None
         self._consuming = False
     
@@ -44,7 +47,7 @@ class ChatConsumer(BaseConsumer):
     ):
         """채팅 메시지 소비"""
         channel = await self.get_channel()
-        queue = await channel.declare_queue(self.config.chat_queue, durable=True)
+        queue = await channel.declare_queue(self.config.rabbitmq_chat_queue, durable=True)
         
         async def message_handler(message: AbstractIncomingMessage):
             async with message.process():
@@ -52,13 +55,13 @@ class ChatConsumer(BaseConsumer):
                     payload = json.loads(message.body.decode())
                     await callback(payload)
                 except Exception as e:
-                    print(f"Error processing chat message: {e}")
+                    logger.error(f"Error processing chat message: {e}", exc_info=True)
         
         self._consuming = True
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 if shutdown_event and shutdown_event.is_set():
-                    print("Shutdown event received, stopping chat consumer.")
+                    logger.info("Shutdown event received, stopping chat consumer.")
                     await message.nack()
                     break
                 
@@ -76,13 +79,11 @@ class ChatConsumer(BaseConsumer):
         """특정 세션의 채팅 응답 소비 (SSE용)"""
         channel = await self.get_channel()
         
-        # 임시 큐 생성 (세션별)
         queue_name = f"temp_responses_{session_id}"
         queue = await channel.declare_queue(queue_name, exclusive=True, auto_delete=True)
         
-        # Exchange에 바인딩
         exchange = await channel.declare_exchange(
-            self.config.chat_responses_exchange, 
+            self.config.rabbitmq_chat_responses_exchange,
             aio_pika.ExchangeType.FANOUT, 
             durable=True
         )
@@ -95,16 +96,15 @@ class ChatConsumer(BaseConsumer):
                     if payload.get("session_id") == session_id:
                         await callback(payload)
                 except Exception as e:
-                    print(f"Error processing chat response: {e}")
+                    logger.error(f"Error processing chat response for session {session_id}: {e}", exc_info=True)
         
-        # 타임아웃과 함께 소비
         try:
             await asyncio.wait_for(
                 self._consume_until_complete(queue, response_handler),
                 timeout=timeout
             )
         except asyncio.TimeoutError:
-            print(f"Chat response consumption timed out for session {session_id}")
+            logger.warning(f"Chat response consumption timed out for session {session_id}")
     
     async def _consume_until_complete(self, queue: AbstractQueue, handler: Callable):
         """완료 신호가 올 때까지 소비"""
@@ -112,7 +112,6 @@ class ChatConsumer(BaseConsumer):
             async for message in queue_iter:
                 await handler(message)
                 
-                # 완료 신호 체크
                 try:
                     payload = json.loads(message.body.decode())
                     if payload.get("event") in ["end", "complete", "error", "done"]:
@@ -140,13 +139,13 @@ class TaskConsumer(BaseConsumer):
                     payload = json.loads(message.body.decode())
                     await callback(payload)
                 except Exception as e:
-                    print(f"Error processing task: {e}")
+                    logger.error(f"Error processing task from queue {queue_name}: {e}", exc_info=True)
         
         self._consuming = True
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 if shutdown_event and shutdown_event.is_set():
-                    print("Shutdown event received, stopping task consumer.")
+                    logger.info(f"Shutdown event received, stopping task consumer for queue {queue_name}.")
                     await message.nack()
                     break
                 
@@ -164,12 +163,10 @@ class TaskConsumer(BaseConsumer):
         """작업 결과 소비"""
         channel = await self.get_channel()
         
-        # 임시 큐 생성
         queue = await channel.declare_queue("", exclusive=True, auto_delete=True)
         
-        # Results exchange에 바인딩
         exchange = await channel.declare_exchange(
-            self.config.results_exchange,
+            self.config.rabbitmq_results_exchange,
             aio_pika.ExchangeType.TOPIC,
             durable=True
         )
@@ -181,7 +178,7 @@ class TaskConsumer(BaseConsumer):
                     payload = json.loads(message.body.decode())
                     await callback(payload)
                 except Exception as e:
-                    print(f"Error processing result: {e}")
+                    logger.error(f"Error processing result for pattern {routing_key_pattern}: {e}", exc_info=True)
         
         try:
             await asyncio.wait_for(
@@ -189,7 +186,7 @@ class TaskConsumer(BaseConsumer):
                 timeout=timeout
             )
         except asyncio.TimeoutError:
-            print(f"Result consumption timed out for pattern {routing_key_pattern}")
+            logger.warning(f"Result consumption timed out for pattern {routing_key_pattern}")
     
     async def _consume_results_until_complete(self, queue: AbstractQueue, handler: Callable):
         """결과 완료까지 소비"""
@@ -197,7 +194,6 @@ class TaskConsumer(BaseConsumer):
             async for message in queue_iter:
                 await handler(message)
                 
-                # 완료 조건 체크 (type 필드 기반으로 수정)
                 try:
                     payload = json.loads(message.body.decode())
                     message_type = payload.get("type", "")
@@ -219,13 +215,11 @@ class LLMConsumer(BaseConsumer):
         """LLM 스트림 소비 (AsyncIterator로 반환)"""
         channel = await self.get_channel()
         
-        # 임시 큐 생성 (job별)
         queue_name = f"temp_llm_stream_{job_id}"
         queue = await channel.declare_queue(queue_name, exclusive=True, auto_delete=True)
         
-        # LLM Stream exchange에 바인딩
         exchange = await channel.declare_exchange(
-            self.config.llm_stream_exchange,
+            self.config.rabbitmq_llm_stream_exchange,
             aio_pika.ExchangeType.TOPIC,
             durable=True
         )
@@ -239,49 +233,40 @@ class LLMConsumer(BaseConsumer):
                             try:
                                 payload = json.loads(message.body.decode())
                                 
-                                # callback 호출
                                 if callback:
                                     await callback(payload)
                                 
                                 yield payload
                                 
-                                # 완료/에러 시 종료
                                 chunk_type = payload.get("chunk_type", "text")
                                 if chunk_type in ["complete", "error"]:
                                     break
                                     
                             except Exception as e:
                                 error_payload = {
-                                    "job_id": job_id,
-                                    "chunk": "",
-                                    "chunk_type": "error",
-                                    "metadata": {"error": str(e)},
-                                    "timestamp": datetime.utcnow().isoformat()
+                                    "job_id": job_id, "chunk": "", "chunk_type": "error",
+                                    "metadata": {"error": str(e)}, "timestamp": datetime.utcnow().isoformat()
                                 }
+                                logger.error(f"Error processing stream chunk for job {job_id}: {e}", exc_info=True)
                                 yield error_payload
                                 break
             
             except Exception as e:
                 error_payload = {
-                    "job_id": job_id,
-                    "chunk": "",
-                    "chunk_type": "error", 
-                    "metadata": {"error": str(e)},
-                    "timestamp": datetime.utcnow().isoformat()
+                    "job_id": job_id, "chunk": "", "chunk_type": "error",
+                    "metadata": {"error": str(e)}, "timestamp": datetime.utcnow().isoformat()
                 }
+                logger.error(f"Error in stream generator for job {job_id}: {e}", exc_info=True)
                 yield error_payload
         
-        # 타임아웃과 함께 스트림 반환
         try:
             async for item in asyncio.wait_for(stream_generator(), timeout=timeout):
                 yield item
         except asyncio.TimeoutError:
+            logger.warning(f"Stream consumption timed out for job {job_id}")
             yield {
-                "job_id": job_id,
-                "chunk": "",
-                "chunk_type": "error",
-                "metadata": {"error": "Stream consumption timed out"},
-                "timestamp": datetime.utcnow().isoformat()
+                "job_id": job_id, "chunk": "", "chunk_type": "error",
+                "metadata": {"error": "Stream consumption timed out"}, "timestamp": datetime.utcnow().isoformat()
             }
     
     async def create_sse_stream(
@@ -291,7 +276,6 @@ class LLMConsumer(BaseConsumer):
     ) -> AsyncIterator[str]:
         """SSE 형식의 스트림 생성"""
         async for payload in self.consume_stream(job_id, None, timeout):
-            # SSE 형식으로 변환
             chunk_type = payload.get("chunk_type", "text")
             
             if chunk_type == "text":
@@ -305,6 +289,5 @@ class LLMConsumer(BaseConsumer):
             
             yield sse_data
             
-            # 완료/에러 시 연결 종료
             if chunk_type in ["complete", "error"]:
                 break

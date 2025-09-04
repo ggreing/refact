@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+import logging
 from typing import Dict, Any
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.providers.google import GoogleProvider
+
+logger = logging.getLogger(__name__)
 
 
 class LLMModelSwitch:
@@ -99,17 +102,18 @@ def get_available_models() -> Dict[str, list]:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
     # Usage example
-    print("Available models:")
+    logger.info("Available models:")
     models = get_available_models()
     for provider, model_list in models.items():
-        print(f"\n{provider.upper()}:")
+        logger.info(f"\n{provider.upper()}:")
         for model in model_list:
-            print(f"  - {model}")
+            logger.info(f"  - {model}")
     
     # Model switch example
     try:
         model = csms_ai_model("gpt-4")
-        print(f"\nSuccessfully loaded model: {model}")
+        logger.info(f"\nSuccessfully loaded model: {model}")
     except Exception as e:
-        print(f"\nModel loading failed: {e}")
+        logger.error(f"\nModel loading failed: {e}", exc_info=True)

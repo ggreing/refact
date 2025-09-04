@@ -1,9 +1,12 @@
 import os
+import logging
 from typing import Union, List
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchAny
 from .utils import log_call
 from .embedding_service import embed_texts
+
+logger = logging.getLogger(__name__)
 
 @log_call
 def retrieve(query: str, collection_names: Union[str, List[str]], limit: int = 5, score_threshold: float = None, file_hash_list: list[str] = None):
@@ -51,5 +54,5 @@ def retrieve(query: str, collection_names: Union[str, List[str]], limit: int = 5
                 "score": point.score
             })
     
-    print(f"Search completed on collections {collection_list} for query '{query}' with {len(results)} results")
+    logger.info(f"Search completed on collections {collection_list} for query '{query}' with {len(results)} results")
     return results

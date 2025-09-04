@@ -1,4 +1,10 @@
+"""
+메모리 관리 클래스 (리팩토링됨)
+"""
 from typing import List
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from .base_client import BaseMongoClient
 from .utils import log_call, generate_id
 
@@ -6,8 +12,16 @@ from .utils import log_call, generate_id
 class MemoryManager(BaseMongoClient):
     """메모리 관리 클래스 (외부 AI 의존성 제거된 버전)"""
     
-    def __init__(self, config=None):
-        super().__init__(config)
+    def __init__(self, mongo_uri: str):
+        # [Refactor] mongo_uri를 직접 받아서 부모 클래스에 전달
+        super().__init__(mongo_uri)
+        # [Refactor] 시간대 정보를 자체적으로 관리
+        self.KST = ZoneInfo("Asia/Seoul")
+
+    @property
+    def current_time(self) -> datetime:
+        # [Refactor] config 객체 대신 자체적으로 현재 시간 반환
+        return datetime.now(self.KST)
     
     @log_call
     def get_memory(self, og_code: str, thread_id: str):
@@ -53,7 +67,7 @@ class MemoryManager(BaseMongoClient):
             {"_id": thread_id},
             {
                 "$push": {"long_term_memory": memory_entry},
-                "$set": {"last_timestamp": self.config.current_time}
+                "$set": {"last_timestamp": self.current_time}
             }
         )
         return result.modified_count > 0
@@ -64,8 +78,8 @@ class MemoryManager(BaseMongoClient):
         return {
             "msg_id": generate_id(),
             "memory": memory_text,
-            "replace_timestamp": replace_timestamp or self.config.current_time,
-            "timestamp": self.config.current_time
+            "replace_timestamp": replace_timestamp or self.current_time,
+            "timestamp": self.current_time
         }
     
     @log_call

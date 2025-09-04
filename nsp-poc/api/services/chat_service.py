@@ -9,6 +9,8 @@ from shared.rabbitmq_lib.publisher import ChatPublisher
 from shared.utils import generate_id  # 공용화된 ID 생성 사용
 
 
+logger = logging.getLogger(__name__)
+
 
 class ChatService:
     """Chat service for handling chat operations"""
@@ -54,7 +56,7 @@ class ChatService:
         )
         
         # Store message (in production, this would go to database)
-        print(f"User message: {user_message.model_dump()}")
+        logger.info(f"User message: {user_message.model_dump()}")
         
         # Prepare message for routing queue
         routing_message = {
@@ -78,7 +80,7 @@ class ChatService:
             user_id=request.user_id
         )
         
-        print(f"Sent message to routing queue: {assistant_message_id}")
+        logger.info(f"Sent message to routing queue: {assistant_message_id}")
         
         return assistant_message_id, thread_id, user_message_id
     
@@ -109,7 +111,7 @@ class ChatService:
         )
         
         # Store message (in production, this would go to database)
-        print(f"AI Assist user message: {user_message.model_dump()}")
+        logger.info(f"AI Assist user message: {user_message.model_dump()}")
         
         # Prepare message for routing queue with AI assist context
         routing_message = {
@@ -137,7 +139,7 @@ class ChatService:
             user_id=request.user_id
         )
         
-        print(f"Sent AI assist message to routing queue: {assistant_message_id}")
+        logger.info(f"Sent AI assist message to routing queue: {assistant_message_id}")
         
         return assistant_message_id, thread_id, user_message_id
     
