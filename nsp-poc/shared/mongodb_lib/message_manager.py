@@ -1,14 +1,31 @@
+"""
+메시지 관리 클래스 (리팩토링됨)
+"""
 from typing import List, Dict, Any
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import logging
+
 from .base_client import BaseMongoClient
 from .utils import log_call
 from .models import MessageData
+
+logger = logging.getLogger(__name__)
 
 
 class MessageManager(BaseMongoClient):
     """메시지 관리 클래스"""
     
-    def __init__(self, config=None):
-        super().__init__(config)
+    def __init__(self, mongo_uri: str):
+        # [Refactor] mongo_uri를 직접 받아서 부모 클래스에 전달
+        super().__init__(mongo_uri)
+        # [Refactor] 시간대 정보를 자체적으로 관리
+        self.KST = ZoneInfo("Asia/Seoul")
+
+    @property
+    def current_time(self) -> datetime:
+        # [Refactor] config 객체 대신 자체적으로 현재 시간 반환
+        return datetime.now(self.KST)
     
     @log_call
     def add_user_message(self, og_code: str, thread_id: str, msg_id: str, content: Any):
@@ -24,12 +41,12 @@ class MessageManager(BaseMongoClient):
             msg_id=msg_id,
             role="ai",
             content=content,
-            timestamp=self.config.current_time
+            timestamp=self.current_time
         )
 
         thread = collection.find_one({"_id": thread_id})
         if not thread:
-            print(f"Thread {thread_id} not found")
+            logger.warning(f"Thread {thread_id} not found for adding AI message.")
             return False
 
         # 기존 AI 메시지 업데이트 시도
@@ -41,8 +58,8 @@ class MessageManager(BaseMongoClient):
             {
                 "$set": {
                     "messages.$[m].content": content,
-                    "messages.$[m].timestamp": self.config.current_time,
-                    "last_timestamp": self.config.current_time
+                    "messages.$[m].timestamp": self.current_time,
+                    "last_timestamp": self.current_time
                 }
             },
             array_filters=[
@@ -56,11 +73,11 @@ class MessageManager(BaseMongoClient):
                 {"_id": thread_id},
                 {
                     "$push": {"messages": message.to_dict()},
-                    "$set": {"last_timestamp": self.config.current_time}
+                    "$set": {"last_timestamp": self.current_time}
                 }
             )
 
-        print(f"[AI] Message added to thread '{thread_id}'")
+        logger.info(f"[AI] Message added to thread '{thread_id}'")
         return True
     
     @log_call
@@ -76,23 +93,23 @@ class MessageManager(BaseMongoClient):
             msg_id=msg_id,
             role=role,
             content=content,
-            timestamp=self.config.current_time
+            timestamp=self.current_time
         )
 
         thread = collection.find_one({"_id": thread_id})
         if not thread:
-            print(f"Thread {thread_id} not found")
+            logger.warning(f"Thread {thread_id} not found for adding {role} message.")
             return False
 
         collection.update_one(
             {"_id": thread_id},
             {
                 "$push": {"messages": message.to_dict()},
-                "$set": {"last_timestamp": self.config.current_time}
+                "$set": {"last_timestamp": self.current_time}
             }
         )
 
-        print(f"[{role.upper()}] Message added to thread '{thread_id}'")
+        logger.info(f"[{role.upper()}] Message added to thread '{thread_id}'")
         return True
     
     @log_call

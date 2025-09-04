@@ -1,5 +1,5 @@
 """
-Server-Sent Events (SSE) 지원 모듈
+Server-Sent Events (SSE) 지원 모듈 (리팩토링됨)
 RabbitMQ와 SSE 연결을 위한 브릿지
 """
 import json
@@ -9,16 +9,16 @@ from datetime import datetime, timezone
 
 from .consumer import LLMConsumer
 from .publisher import LLMPublisher
-from .config import RabbitMQConfig, get_rabbitmq_config
+# [Refactor] 중앙 설정을 사용하므로 더 이상 config import 불필요
 
 
 class SSEBridge:
     """RabbitMQ와 SSE 간의 브릿지 클래스"""
     
-    def __init__(self, config: RabbitMQConfig = None):
-        self.config = config or get_rabbitmq_config()
-        self.consumer = LLMConsumer(config)
-        self.publisher = LLMPublisher(config)
+    def __init__(self):
+        # [Refactor] config 인자 제거, 내부 클래스들이 중앙 설정을 직접 사용
+        self.consumer = LLMConsumer()
+        self.publisher = LLMPublisher()
     
     async def create_job_stream(
         self,
@@ -127,14 +127,14 @@ class SSEHandler:
         await self.bridge.close()
 
 
-# 편의 함수들
+# 편의 함수들 (리팩토링됨)
 async def create_sse_stream_for_job(
     job_id: str,
-    timeout: float = 120.0,
-    config: RabbitMQConfig = None
+    timeout: float = 120.0
 ) -> AsyncIterator[str]:
     """간단한 SSE 스트림 생성 함수"""
-    bridge = SSEBridge(config)
+    # [Refactor] config 인자 제거
+    bridge = SSEBridge()
     try:
         async for data in bridge.create_job_stream(job_id, timeout):
             yield data
@@ -144,11 +144,11 @@ async def create_sse_stream_for_job(
 
 async def publish_llm_to_sse(
     job_id: str,
-    llm_generator: AsyncIterator[str],
-    config: RabbitMQConfig = None
+    llm_generator: AsyncIterator[str]
 ):
     """LLM 생성기를 SSE로 발행하는 편의 함수"""
-    bridge = SSEBridge(config)
+    # [Refactor] config 인자 제거
+    bridge = SSEBridge()
     try:
         await bridge.publish_llm_stream(job_id, llm_generator)
     finally:

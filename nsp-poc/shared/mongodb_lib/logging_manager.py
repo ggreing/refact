@@ -1,21 +1,38 @@
+"""
+로그 관리 클래스 (리팩토링됨)
+"""
 from typing import Dict
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+import logging
+
 from .base_client import BaseMongoClient
 from .utils import log_call
+
+logger = logging.getLogger(__name__)
 
 
 class LoggingManager(BaseMongoClient):
     """로그 관리 클래스"""
     
-    def __init__(self, config=None):
-        super().__init__(config)
-    
+    def __init__(self, mongo_uri: str):
+        # [Refactor] mongo_uri를 직접 받아서 부모 클래스에 전달
+        super().__init__(mongo_uri)
+        # [Refactor] 시간대 정보를 자체적으로 관리
+        self.KST = ZoneInfo("Asia/Seoul")
+
+    @property
+    def current_time(self) -> datetime:
+        # [Refactor] config 객체 대신 자체적으로 현재 시간 반환
+        return datetime.now(self.KST)
+
     @log_call
     def log_error(self, org_code: str, error_data: dict):
         """에러 로그를 저장합니다."""
         collection = self.get_collection(org_code, "error_log")
         error_entry = {
             "error_data": error_data,
-            "timestamp": self.config.current_time
+            "timestamp": self.current_time
         }
         collection.insert_one(error_entry)
         return True
@@ -39,7 +56,7 @@ class LoggingManager(BaseMongoClient):
             "user_id": user_id,
             "activity": activity,
             "details": details or {},
-            "timestamp": self.config.current_time
+            "timestamp": self.current_time
         }
         collection.insert_one(activity_entry)
         return True
@@ -65,13 +82,12 @@ class LoggingManager(BaseMongoClient):
     @log_call
     def delete_old_logs(self, org_code: str, collection_name: str, days_to_keep: int = 30):
         """오래된 로그를 삭제합니다."""
-        from datetime import timedelta
-        
-        cutoff_date = self.config.current_time - timedelta(days=days_to_keep)
+        cutoff_date = self.current_time - timedelta(days=days_to_keep)
         collection = self.get_collection(org_code, collection_name)
         
         result = collection.delete_many({"timestamp": {"$lt": cutoff_date}})
-        print(f"Deleted {result.deleted_count} old logs from {collection_name}")
+        # [Refactor] print를 logger.info로 교체
+        logger.info(f"Deleted {result.deleted_count} old logs from {collection_name}")
         return result.deleted_count
     
     @log_call
@@ -81,14 +97,11 @@ class LoggingManager(BaseMongoClient):
         
         total_count = collection.count_documents({})
         
-        # 날짜별 통계 (최근 7일)
-        from datetime import timedelta
-        
         pipeline = [
             {
                 "$match": {
                     "timestamp": {
-                        "$gte": self.config.current_time - timedelta(days=7)
+                        "$gte": self.current_time - timedelta(days=7)
                     }
                 }
             },

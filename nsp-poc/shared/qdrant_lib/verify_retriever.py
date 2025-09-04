@@ -1,16 +1,21 @@
 import os
 import sys
+import logging
 from typing import List
 
 from qdrant_client import QdrantClient
 
 from .qdrant_client import search_qdrant
 
+# 로거 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 
 def env(name: str, default: str | None = None) -> str:
     v = os.getenv(name, default)
     if v is None:
-        print(f"[ERROR] Missing env var: {name}")
+        logger.error(f"[ERROR] Missing env var: {name}")
         sys.exit(1)
     return v
 
@@ -24,7 +29,7 @@ def main():
     # Basic collection presence and count
     cols = [c.name for c in client.get_collections().collections]
     if collection not in cols:
-        print(f"[FAIL] Collection '{collection}' does not exist at {qdrant_url}")
+        logger.error(f"[FAIL] Collection '{collection}' does not exist at {qdrant_url}")
         sys.exit(2)
 
     try:
@@ -35,10 +40,10 @@ def main():
         count = len(pts)
 
     if count == 0:
-        print(f"[FAIL] Collection '{collection}' has 0 points. Ingestion likely failed.")
+        logger.error(f"[FAIL] Collection '{collection}' has 0 points. Ingestion likely failed.")
         sys.exit(3)
 
-    print(f"[OK] Collection '{collection}' ready with {count} points.")
+    logger.info(f"[OK] Collection '{collection}' ready with {count} points.")
 
     # Smoke test queries based on provided CSV fields
     queries: List[str] = [
@@ -50,21 +55,21 @@ def main():
 
     for q in queries:
         results = search_qdrant(q, collection, top_k=3)
-        print(f"\nQuery: {q}")
+        logger.info(f"\nQuery: {q}")
         if not results:
-            print("  - No results")
+            logger.info("  - No results")
             continue
         for r in results:
             meta = (r.get("payload", {}) or {}).get("metadata", {})
             title = meta.get("course_name")
             cid = meta.get("course_id")
             score = r.get("score")
-            print(f"  - score={score:.4f} id={cid} title={title}")
+            logger.info(f"  - score={score:.4f} id={cid} title={title}")
 
 
 if __name__ == "__main__":
     # Ensure envs are present for embedding/search
     if not os.getenv("OPENAI_API_KEY"):
-        print("[WARN] OPENAI_API_KEY not set; search will fail.")
+        logger.warning("[WARN] OPENAI_API_KEY not set; search will fail.")
     main()
 

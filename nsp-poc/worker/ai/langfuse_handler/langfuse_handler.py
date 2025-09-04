@@ -8,9 +8,12 @@ LangGraph와 Langfuse 통합을 위한 커스텀 핸들러 모듈
 from functools import wraps
 from typing import Any, Dict
 import inspect
+import logging
 from langchain_core.runnables import RunnableConfig
 from langfuse.langchain import CallbackHandler
 from opentelemetry.sdk.trace import Span
+
+logger = logging.getLogger(__name__)
 
 
 class CustomLangfuseHandler(CallbackHandler):
@@ -39,7 +42,7 @@ class CustomLangfuseHandler(CallbackHandler):
         
         에러 정보를 로깅하고 Langfuse에 전송합니다.
         """
-        print(f"LangGraph chain error: {error}")
+        logger.error(f"LangGraph chain error: {error}", exc_info=True)
         super().on_chain_error(error, **kwargs)
 
 

@@ -6,6 +6,7 @@ import uuid
 import os
 import json
 import asyncio
+import logging
 from fastapi import UploadFile, File, Form
 from pydantic import BaseModel, Field
 from fastapi.encoders import jsonable_encoder
@@ -20,6 +21,7 @@ from shared.mongodb_lib.client import get_mongodb_client  # 중앙화된 클라�
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # MongoDB 클라이언트 지연 초기화
 mdb = None
@@ -177,26 +179,26 @@ async def ai_assist_stream(
                         # 새로운 데이터가 있는지 확인
                         if result_data:
                             data = result_data.pop(0)
-                            print(f"[DEBUG] Received data from queue: {data}")
+                            logger.debug(f"Received data from queue: {data}")
                             
                             # 새로운 타입 시스템: queue, run, error, done
                             data_type = data.get("type")
                             thread_id = data.get("thread_id")
                             stream_id_received = data.get("stream_id")
-                            print(f"[DEBUG] data_type: {data_type}, thread_id: {thread_id}")
+                            logger.debug(f"data_type: {data_type}, thread_id: {thread_id}")
                             
                             if data_type == "queue":
                                 raw_content = data.get("content", "")
-                                print(f"[DEBUG] raw_content: {raw_content}")
+                                logger.debug(f"raw_content: {raw_content}")
                                 parsed_content = None
                                 try:
                                     # content가 JSON 문자열(한글 포함)일 경우 파싱
                                     parsed_content = json.loads(raw_content)
-                                    print(f"[DEBUG] parsed_content: {parsed_content}")
+                                    logger.debug(f"parsed_content: {parsed_content}")
                                 except Exception as e:
                                     # JSON이 아니면 원문 문자열 유지
                                     parsed_content = raw_content
-                                    print(f"[DEBUG] JSON parse failed: {e}, using raw content")
+                                    logger.debug(f"JSON parse failed: {e}, using raw content")
 
                                 payload = {
                                     "type": "queue", 
@@ -204,25 +206,25 @@ async def ai_assist_stream(
                                     "thread_id": thread_id,
                                     "stream_id": stream_id_received
                                 }
-                                print(f"[DEBUG] Final payload: {payload}")
+                                logger.debug(f"Final payload: {payload}")
                                 aggregated.append(payload)
                                 
                                 try:
                                     json_payload = json.dumps(jsonable_encoder(payload), ensure_ascii=False)
                                     yield f"data: {json_payload}\n\n"
                                 except Exception as e:
-                                    print(f"[ERROR] Failed to serialize payload: {e}")
+                                    logger.error(f"Failed to serialize payload: {e}", exc_info=True)
                                     yield f"data: {json.dumps({'type': 'error', 'message': f'Serialization error: {str(e)}'}, ensure_ascii=False)}\n\n"
                                 
                             elif data_type == "run":
                                 raw_content = data.get("content", "")
-                                print(f"[DEBUG] Processing RUN message: {raw_content}")
+                                logger.debug(f"Processing RUN message: {raw_content}")
                                 try:
                                     parsed_content = json.loads(raw_content)
-                                    print(f"[DEBUG] Parsed RUN content: {parsed_content}")
+                                    logger.debug(f"Parsed RUN content: {parsed_content}")
                                 except Exception as e:
                                     parsed_content = raw_content
-                                    print(f"[DEBUG] RUN JSON parse failed: {e}, using raw content")
+                                    logger.debug(f"RUN JSON parse failed: {e}, using raw content")
                                     
                                 payload = {
                                     "type": "run", 
@@ -230,7 +232,7 @@ async def ai_assist_stream(
                                     "thread_id": thread_id,
                                     "stream_id": stream_id_received
                                 }
-                                print(f"[DEBUG] Sending RUN payload: {payload}")
+                                logger.debug(f"Sending RUN payload: {payload}")
                                 yield f"data: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
                                 
                             elif data_type == "done":

@@ -1,6 +1,11 @@
 import argparse
 import os
+import logging
 from .qdrant_client import ingest_courses_csv, search_qdrant
+
+# 로거 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -21,14 +26,14 @@ def main():
 
     if args.cmd == "ingest":
         file_hash = ingest_courses_csv(args.file, args.collection, org_code=args.org)
-        print(f"Ingested '{args.file}' → collection='{args.collection}', file_hash={file_hash}")
+        logger.info(f"Ingested '{args.file}' → collection='{args.collection}', file_hash={file_hash}")
     elif args.cmd == "search":
         results = search_qdrant(args.query, args.collection, top_k=args.k)
         for i, r in enumerate(results, start=1):
             meta = r.get("payload", {}).get("metadata", {})
             text = r.get("payload", {}).get("text", "")
             title = meta.get("course_name") or text.splitlines()[0][:80]
-            print(f"[{i}] score={r['score']:.4f} id={r['id']} title={title}")
+            logger.info(f"[{i}] score={r['score']:.4f} id={r['id']} title={title}")
     else:
         parser.error("Unknown command")
 
@@ -36,8 +41,8 @@ def main():
 if __name__ == "__main__":
     # Validate required env vars
     if not os.getenv("QDRANT_URL"):
-        print("[WARN] QDRANT_URL not set; default client may fail to connect.")
+        logger.warning("[WARN] QDRANT_URL not set; default client may fail to connect.")
     if not os.getenv("OPENAI_API_KEY"):
-        print("[WARN] OPENAI_API_KEY not set; embedding calls will fail.")
+        logger.warning("[WARN] OPENAI_API_KEY not set; embedding calls will fail.")
     main()
 

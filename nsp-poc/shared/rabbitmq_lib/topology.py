@@ -1,13 +1,17 @@
 """
-RabbitMQ 토폴로지 관리
+RabbitMQ 토폴로지 관리 (리팩토링됨)
 Exchange, Queue, Binding 선언
 """
+import logging
 from typing import Dict, Any
 import aio_pika
 from aio_pika import ExchangeType
 from aio_pika.abc import AbstractRobustChannel, AbstractQueue
 
-from .config import RabbitMQConfig, get_rabbitmq_config
+# [Refactor] 분산된 설정 대신 중앙 설정 객체를 import
+from api.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 async def _compat_declare_exchange(
@@ -26,14 +30,14 @@ async def _compat_declare_exchange(
         raise AttributeError("Channel has neither declare_exchange nor exchange_declare")
 
 
-async def declare_chat_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None) -> Dict[str, AbstractQueue]:
+async def declare_chat_topology(channel: AbstractRobustChannel) -> Dict[str, AbstractQueue]:
     """채팅 관련 토폴로지 선언"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거, 중앙 settings 객체 사용
     
     # Chat Messages Exchange (Direct)
     await _compat_declare_exchange(
         channel, 
-        config.chat_messages_exchange, 
+        settings.rabbitmq_chat_messages_exchange,
         ExchangeType.DIRECT, 
         durable=True
     )
@@ -41,44 +45,44 @@ async def declare_chat_topology(channel: AbstractRobustChannel, config: RabbitMQ
     # Chat Responses Exchange (Fanout) 
     await _compat_declare_exchange(
         channel,
-        config.chat_responses_exchange,
+        settings.rabbitmq_chat_responses_exchange,
         ExchangeType.FANOUT,
         durable=True
     )
     
     # Chat Queue
-    chat_queue = await channel.declare_queue(config.chat_queue, durable=True)
-    await chat_queue.bind(config.chat_messages_exchange, routing_key="request")
+    chat_queue = await channel.declare_queue(settings.rabbitmq_chat_queue, durable=True)
+    await chat_queue.bind(settings.rabbitmq_chat_messages_exchange, routing_key="request")
     
     return {"chat": chat_queue}
 
 
-async def declare_worker_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None) -> Dict[str, AbstractQueue]:
+async def declare_worker_topology(channel: AbstractRobustChannel) -> Dict[str, AbstractQueue]:
     """워커 관련 토폴로지 선언"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거, 중앙 settings 객체 사용
     
     # Worker Exchanges
-    await _compat_declare_exchange(channel, config.tasks_exchange, ExchangeType.TOPIC, durable=True)
-    await _compat_declare_exchange(channel, config.results_exchange, ExchangeType.TOPIC, durable=True)
-    await _compat_declare_exchange(channel, config.dlx_exchange, ExchangeType.FANOUT, durable=True)
+    await _compat_declare_exchange(channel, settings.rabbitmq_tasks_exchange, ExchangeType.TOPIC, durable=True)
+    await _compat_declare_exchange(channel, settings.rabbitmq_results_exchange, ExchangeType.TOPIC, durable=True)
+    await _compat_declare_exchange(channel, settings.rabbitmq_dlx_exchange, ExchangeType.FANOUT, durable=True)
     
-    # Main Worker Queues (without DLX for now to avoid conflicts)
-    q_assist = await channel.declare_queue(config.assist_queue, durable=True)
-    q_galaxy = await channel.declare_queue(config.galaxy_queue, durable=True)
-    q_translate = await channel.declare_queue(config.translate_queue, durable=True)
-    q_sim = await channel.declare_queue(config.sim_queue, durable=True)
+    # Main Worker Queues
+    q_assist = await channel.declare_queue(settings.rabbitmq_assist_queue, durable=True)
+    q_galaxy = await channel.declare_queue(settings.rabbitmq_galaxy_queue, durable=True)
+    q_translate = await channel.declare_queue(settings.rabbitmq_translate_queue, durable=True)
+    q_sim = await channel.declare_queue(settings.rabbitmq_sim_queue, durable=True)
     
     # Bindings to Tasks Exchange
-    await q_assist.bind(config.tasks_exchange, config.assist_routing_key)
-    await q_galaxy.bind(config.tasks_exchange, config.galaxy_routing_key)
-    await q_translate.bind(config.tasks_exchange, config.translate_routing_key)
-    await q_sim.bind(config.tasks_exchange, config.sim_routing_key)
+    await q_assist.bind(settings.rabbitmq_tasks_exchange, settings.rabbitmq_assist_routing_key)
+    await q_galaxy.bind(settings.rabbitmq_tasks_exchange, settings.rabbitmq_galaxy_routing_key)
+    await q_translate.bind(settings.rabbitmq_tasks_exchange, settings.rabbitmq_translate_routing_key)
+    await q_sim.bind(settings.rabbitmq_tasks_exchange, settings.rabbitmq_sim_routing_key)
     
     # Dead Letter Queues
-    await channel.declare_queue(f"{config.assist_queue}{config.dlq_suffix}", durable=True)
-    await channel.declare_queue(f"{config.galaxy_queue}{config.dlq_suffix}", durable=True)
-    await channel.declare_queue(f"{config.translate_queue}{config.dlq_suffix}", durable=True)
-    await channel.declare_queue(f"{config.sim_queue}{config.dlq_suffix}", durable=True)
+    await channel.declare_queue(f"{settings.rabbitmq_assist_queue}{settings.rabbitmq_dlq_suffix}", durable=True)
+    await channel.declare_queue(f"{settings.rabbitmq_galaxy_queue}{settings.rabbitmq_dlq_suffix}", durable=True)
+    await channel.declare_queue(f"{settings.rabbitmq_translate_queue}{settings.rabbitmq_dlq_suffix}", durable=True)
+    await channel.declare_queue(f"{settings.rabbitmq_sim_queue}{settings.rabbitmq_dlq_suffix}", durable=True)
     
     return {
         "assist": q_assist,
@@ -88,35 +92,34 @@ async def declare_worker_topology(channel: AbstractRobustChannel, config: Rabbit
     }
 
 
-async def declare_llm_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None) -> Dict[str, AbstractQueue]:
+async def declare_llm_topology(channel: AbstractRobustChannel) -> Dict[str, AbstractQueue]:
     """LLM 스트리밍 관련 토폴로지 선언"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거, 중앙 settings 객체 사용
     
     # LLM Stream Exchange (Topic) - SSE용
     await _compat_declare_exchange(
         channel,
-        config.llm_stream_exchange, 
+        settings.rabbitmq_llm_stream_exchange,
         ExchangeType.TOPIC,
         durable=True
     )
     
     # LLM Stream Queue (선택적, 필요시에만)
-    # 보통은 임시 큐를 사용하지만, 영구 큐가 필요한 경우
     llm_queue = await channel.declare_queue(
-        config.llm_stream_queue, 
-        durable=False,  # 스트리밍은 휘발성
+        settings.rabbitmq_llm_stream_queue,
+        durable=False,
         auto_delete=True
     )
     
     # 기본 바인딩 (모든 LLM 스트림)
-    await llm_queue.bind(config.llm_stream_exchange, config.llm_routing_key)
+    await llm_queue.bind(settings.rabbitmq_llm_stream_exchange, settings.rabbitmq_llm_routing_key)
     
     return {"llm_stream": llm_queue}
 
 
-async def declare_ai_worker_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None) -> Dict[str, AbstractQueue]:
+async def declare_ai_worker_topology(channel: AbstractRobustChannel) -> Dict[str, AbstractQueue]:
     """AI 워커 토폴로지 선언 (새로운 구조)"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거, 중앙 settings 객체 사용 (하드코딩된 값들은 그대로 유지)
     
     # Main routing queue - API에서 여기로 메시지 발행
     routing_queue = await channel.declare_queue("message_routing_queue", durable=True)
@@ -142,15 +145,15 @@ async def declare_ai_worker_topology(channel: AbstractRobustChannel, config: Rab
     }
 
 
-async def declare_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None) -> Dict[str, AbstractQueue]:
+async def declare_topology(channel: AbstractRobustChannel) -> Dict[str, AbstractQueue]:
     """모든 토폴로지를 선언하는 통합 함수"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거
     
     # 각 토폴로지 선언
-    chat_queues = await declare_chat_topology(channel, config)
-    worker_queues = await declare_worker_topology(channel, config)
-    llm_queues = await declare_llm_topology(channel, config)
-    ai_worker_queues = await declare_ai_worker_topology(channel, config)
+    chat_queues = await declare_chat_topology(channel)
+    worker_queues = await declare_worker_topology(channel)
+    llm_queues = await declare_llm_topology(channel)
+    ai_worker_queues = await declare_ai_worker_topology(channel)
     
     # 결과 통합
     all_queues = {}
@@ -162,9 +165,9 @@ async def declare_topology(channel: AbstractRobustChannel, config: RabbitMQConfi
     return all_queues
 
 
-async def cleanup_topology(channel: AbstractRobustChannel, config: RabbitMQConfig = None):
+async def cleanup_topology(channel: AbstractRobustChannel):
     """토폴로지 정리 (개발/테스트용)"""
-    config = config or get_rabbitmq_config()
+    # [Refactor] config 인자 제거, 이 함수는 설정에 의존하지 않음
     
     # 주의: 운영 환경에서는 사용하지 말 것!
     try:
@@ -172,7 +175,7 @@ async def cleanup_topology(channel: AbstractRobustChannel, config: RabbitMQConfi
         pass  # 대부분 auto_delete=True로 설정되어 자동 정리됨
         
     except Exception as e:
-        print(f"Cleanup failed: {e}")
+        logger.error(f"Cleanup failed: {e}", exc_info=True)
 
 
 async def get_queue_info(channel: AbstractRobustChannel, queue_name: str) -> Dict[str, Any]:

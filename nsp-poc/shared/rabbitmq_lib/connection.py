@@ -1,30 +1,34 @@
 """
-RabbitMQ 연결 관리
+RabbitMQ 연결 관리 (리팩토링됨)
 """
 import aio_pika
 from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel
-from .config import RabbitMQConfig, get_rabbitmq_config
+
+# [Refactor] 분산된 설정 대신 중앙 설정 객체를 import
+from api.config.settings import settings
 
 
 class ConnectionManager:
     """RabbitMQ 연결 관리 클래스"""
     
-    def __init__(self, config: RabbitMQConfig = None):
-        self.config = config or get_rabbitmq_config()
+    def __init__(self):
+        # [Refactor] 중앙 설정 객체를 직접 사용
+        self.config = settings
         self._connection = None
     
     async def get_connection(self) -> AbstractRobustConnection:
         """RabbitMQ 연결 반환 (재사용)"""
         if self._connection is None or self._connection.is_closed:
-            if self.config.url:
-                self._connection = await aio_pika.connect_robust(self.config.url)
+            # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
+            if self.config.rabbitmq_url:
+                self._connection = await aio_pika.connect_robust(self.config.rabbitmq_url)
             else:
                 self._connection = await aio_pika.connect_robust(
-                    host=self.config.host,
-                    port=self.config.port,
-                    login=self.config.user,
-                    password=self.config.password,
-                    virtualhost=self.config.vhost,
+                    host=self.config.rabbitmq_host,
+                    port=self.config.rabbitmq_port,
+                    login=self.config.rabbitmq_user,
+                    password=self.config.rabbitmq_password,
+                    virtualhost=self.config.rabbitmq_vhost,
                 )
         return self._connection
     
@@ -32,7 +36,8 @@ class ConnectionManager:
         """새로운 채널 생성"""
         connection = await self.get_connection()
         channel = await connection.channel()
-        await channel.set_qos(prefetch_count=self.config.worker_prefetch)
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
+        await channel.set_qos(prefetch_count=self.config.rabbitmq_worker_prefetch)
         return channel
     
     async def close(self):
@@ -41,12 +46,12 @@ class ConnectionManager:
             await self._connection.close()
 
 
-# 전역 연결 관리자
+# 전역 연결 관리자 (기존 구조 유지)
 _connection_manager = None
 
 
 async def get_rabbitmq_connection() -> AbstractRobustConnection:
-    """전역 RabbitMQ 연결 반환 (기존 호환성)"""
+    """전역 RabbitMQ 연결 반환"""
     global _connection_manager
     if _connection_manager is None:
         _connection_manager = ConnectionManager()
@@ -54,7 +59,7 @@ async def get_rabbitmq_connection() -> AbstractRobustConnection:
 
 
 async def get_channel() -> AbstractRobustChannel:
-    """새로운 채널 생성 (기존 호환성)"""
+    """새로운 채널 생성"""
     global _connection_manager
     if _connection_manager is None:
         _connection_manager = ConnectionManager()

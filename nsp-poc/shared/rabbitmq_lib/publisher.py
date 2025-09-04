@@ -1,5 +1,5 @@
 """
-RabbitMQ 메시지 발행자들
+RabbitMQ 메시지 발행자들 (리팩토링됨)
 """
 import json
 import asyncio
@@ -10,15 +10,17 @@ import aio_pika
 from aio_pika import Message, DeliveryMode, ExchangeType
 from aio_pika.abc import AbstractRobustChannel, AbstractExchange
 
-from .config import RabbitMQConfig, get_rabbitmq_config
+# [Refactor] 분산된 설정 대신 중앙 설정 객체를 import
+from api.config.settings import settings
 from .connection import get_channel
 
 
 class BasePublisher:
     """기본 발행자 클래스"""
     
-    def __init__(self, config: RabbitMQConfig = None):
-        self.config = config or get_rabbitmq_config()
+    def __init__(self):
+        # [Refactor] 중앙 설정 객체를 직접 사용
+        self.config = settings
         self._channel = None
         self._exchanges = {}
     
@@ -49,8 +51,9 @@ class ChatPublisher(BasePublisher):
     
     async def publish_response(self, session_id: str, chunk: str, event: str = "message"):
         """채팅 응답 발행 (SSE용)"""
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
         exchange = await self.get_exchange(
-            self.config.chat_responses_exchange, 
+            self.config.rabbitmq_chat_responses_exchange,
             ExchangeType.FANOUT
         )
         
@@ -71,8 +74,9 @@ class ChatPublisher(BasePublisher):
     
     async def publish_message(self, session_id: str, user_message: str, user_id: str = None):
         """채팅 메시지 발행"""
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
         exchange = await self.get_exchange(
-            self.config.chat_messages_exchange,
+            self.config.rabbitmq_chat_messages_exchange,
             ExchangeType.DIRECT
         )
         
@@ -97,7 +101,8 @@ class TaskPublisher(BasePublisher):
     
     async def publish_task(self, routing_key: str, payload: Dict[str, Any]):
         """작업 발행"""
-        exchange = await self.get_exchange(self.config.tasks_exchange)
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
+        exchange = await self.get_exchange(self.config.rabbitmq_tasks_exchange)
         
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         message = Message(
@@ -110,7 +115,8 @@ class TaskPublisher(BasePublisher):
     
     async def publish_result(self, routing_key: str, payload: Dict[str, Any]):
         """결과 발행"""
-        exchange = await self.get_exchange(self.config.results_exchange)
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
+        exchange = await self.get_exchange(self.config.rabbitmq_results_exchange)
         
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         message = Message(
@@ -133,8 +139,9 @@ class LLMPublisher(BasePublisher):
         metadata: Optional[Dict[str, Any]] = None
     ):
         """LLM 스트리밍 청크 발행"""
+        # [Refactor] 중앙 설정의 필드 이름을 사용하도록 수정
         exchange = await self.get_exchange(
-            self.config.llm_stream_exchange,
+            self.config.rabbitmq_llm_stream_exchange,
             ExchangeType.TOPIC
         )
         

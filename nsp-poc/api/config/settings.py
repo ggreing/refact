@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 
 
@@ -20,9 +21,34 @@ class Settings(BaseSettings):
     rabbitmq_user: str = "guest"
     rabbitmq_password: str = "guest"
     rabbitmq_vhost: str = "/"
+    rabbitmq_url: Optional[str] = None # For direct connection string
+
+    # RabbitMQ Topology Settings (중앙화)
+    rabbitmq_chat_messages_exchange: str = "chat.messages"
+    rabbitmq_chat_responses_exchange: str = "chat.responses"
+    rabbitmq_tasks_exchange: str = "ai.tasks"
+    rabbitmq_results_exchange: str = "ai.results"
+    rabbitmq_dlx_exchange: str = "ai.dlq"
+    rabbitmq_llm_stream_exchange: str = "llm.stream"
+
+    rabbitmq_chat_queue: str = "q.chat.messages"
+    rabbitmq_assist_queue: str = "q.assist"
+    rabbitmq_galaxy_queue: str = "q.galaxy"
+    rabbitmq_translate_queue: str = "q.translate"
+    rabbitmq_sim_queue: str = "q.sim.control"
+    rabbitmq_llm_stream_queue: str = "q.llm.stream"
+
+    rabbitmq_assist_routing_key: str = "assist.*"
+    rabbitmq_galaxy_routing_key: str = "galaxy.*"
+    rabbitmq_translate_routing_key: str = "translate.*"
+    rabbitmq_sim_routing_key: str = "sim.*"
+    rabbitmq_llm_routing_key: str = "llm.*"
+
+    rabbitmq_worker_prefetch: int = 10
+    rabbitmq_dlq_suffix: str = ".dlq"
     
     # MongoDB Settings
-    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_url: str = Field("mongodb://localhost:27017", alias="MONGO_URI")
     mongodb_database: str = "nsp_chat"
     
     # MinIO Settings
