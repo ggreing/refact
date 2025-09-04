@@ -1,0 +1,26 @@
+{
+  "apps": [
+    {
+      "name": "ai-chat-worker",
+      "script": "/app/worker/ai/ai_assist/ai_run.py",
+      "interpreter": "python3",
+      "instances": 4,
+      "exec_mode": "fork",
+      "env": {
+        "PYTHONPATH": "/app",
+        "WORKER_TYPE": "ai_chat"
+      },
+      "error_file": "/app/logs/ai-chat-error.log",
+      "out_file": "/app/logs/ai-chat-out.log",
+      "log_file": "/app/logs/ai-chat-combined.log",
+      "time": true,
+      "autorestart": true,
+      "max_restarts": 10,
+      "min_uptime": "10s",
+      "max_memory_restart": "500M",
+      "restart_delay": 4000,
+      "kill_timeout": 5000,
+      "listen_timeout": 10000
+    }
+  ]
+}

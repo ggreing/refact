@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: nsp-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  mongo:
+    image: mongo:6
+    ports: ["27017:27017"]
+    volumes:
+      - mongo_data:/data/db
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - minio_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: nsp-mongo-express
+    ports:
+      - "${MONGO_EXPRESS_PORT:-8081}:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USERNAME:-admin}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:-pass}
+    depends_on:
+      - mongo
+
+  api:
+    build:
+      context: ../
+      dockerfile: docker/api.Dockerfile
+    container_name: nsp-chat-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_DB: ${POSTGRES_DB:-nsp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nsp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nsp_password}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      postgres:
+        condition: service_started
+    volumes:
+      - ../api:/app/api:ro
+      - ../shared:/app/shared:ro
+    restart: unless-stopped
+
+  # AI Workers with PM2
+  worker-ai-assist:
+    build:
+      context: ../
+      dockerfile: docker/worker.Dockerfile
+    container_name: nsp-worker-ai-assist
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_TYPE: ai_assist
+      PM2_INSTANCES: ${PM2_AI_ASSIST_INSTANCES:-3}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-/}
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
+      POSTGRES_DB: ${POSTGRES_DB:-nsp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nsp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nsp_password}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-courses}
+      QDRANT_ORG_CODE: ${QDRANT_ORG_CODE:-default}
+      QDRANT_BOOTSTRAP_CSV: /app/data/metadata_course.csv
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      postgres:
+        condition: service_started
+    volumes:
+      - ../shared:/app/shared:ro
+      - ../worker:/app/worker:ro
+      - ../data:/app/data:ro
+      - worker_logs:/app/logs
+    restart: unless-stopped
+    command: ["pm2-runtime", "start", "/app/pm2.ai-assist.json"]
+
+  postgres:
+    build:
+      context: ../postgres
+    container_name: nsp-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nsp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nsp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nsp_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # worker-ai-chat:
+  #   build:
+  #     context: ../
+  #     dockerfile: docker/worker.Dockerfile
+  #   container_name: nsp-worker-ai-chat
+  #   environment:
+  #     RABBITMQ_HOST: rabbitmq
+  #     RABBITMQ_PORT: 5672
+  #     RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+  #     RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+  #     RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+  #     ENVIRONMENT: ${ENVIRONMENT:-development}
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     WORKER_TYPE: ai_chat
+  #     PM2_INSTANCES: ${PM2_AI_CHAT_INSTANCES:-4}
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ../shared:/app/shared:ro
+  #     - ../worker:/app/worker:ro
+  #     - worker_logs:/app/logs
+  #   restart: unless-stopped
+  #   command: ["pm2-runtime", "start", "/app/pm2.ai-chat.json"]
+
+volumes:
+  rabbitmq_data:
+  mongo_data:
+  minio_data:
+  qdrant_data:
+  worker_logs:
+  postgres_data:
